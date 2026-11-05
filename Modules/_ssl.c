@@ -165,6 +165,14 @@ struct py_ssl_library_code {
 #define OPENSSL_NO_SSL2
 #endif
 
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+#define OPENSSL_NO_SSL2
+#define OPENSSL_NO_SSL3
+#define TLSv1_method   TLS_method
+#define TLSv1_1_method TLS_method
+#define TLSv1_2_method TLS_method
+#endif
+
 #ifndef PY_OPENSSL_1_1_API
 /* OpenSSL 1.1 API shims for OpenSSL < 1.1.0 and LibreSSL < 2.7.0 */
 
@@ -592,7 +600,9 @@ newPySSLSocket(PySSLContext *sslctx, PySocketSockObject *sock,
     Py_INCREF(sslctx);
 
     /* Make sure the SSL error state is initialized */
+#if (OPENSSL_VERSION_NUMBER < 0x40000000L)
     (void) ERR_get_state();
+#endif
     ERR_clear_error();
 
     PySSL_BEGIN_ALLOW_THREADS
@@ -786,7 +796,7 @@ _asn1obj2py(const ASN1_OBJECT *name, int no_name)
 }
 
 static PyObject *
-_create_tuple_for_attribute(ASN1_OBJECT *name, ASN1_STRING *value)
+_create_tuple_for_attribute(const ASN1_OBJECT *name, const ASN1_STRING *value)
 {
     Py_ssize_t buflen;
     unsigned char *valuebuf = NULL;
@@ -806,16 +816,16 @@ _create_tuple_for_attribute(ASN1_OBJECT *name, ASN1_STRING *value)
 }
 
 static PyObject *
-_create_tuple_for_X509_NAME (X509_NAME *xname)
+_create_tuple_for_X509_NAME (const X509_NAME *xname)
 {
     PyObject *dn = NULL;    /* tuple which represents the "distinguished name" */
     PyObject *rdn = NULL;   /* tuple to hold a "relative distinguished name" */
     PyObject *rdnt;
     PyObject *attr = NULL;   /* tuple to hold an attribute */
     int entry_count = X509_NAME_entry_count(xname);
-    X509_NAME_ENTRY *entry;
-    ASN1_OBJECT *name;
-    ASN1_STRING *value;
+    const X509_NAME_ENTRY *entry;
+    const ASN1_OBJECT *name;
+    const ASN1_STRING *value;
     int index_counter;
     int rdn_level = -1;
     int retcode;
@@ -916,7 +926,7 @@ _get_peer_alt_names (X509 *certificate) {
     int i, j;
     PyObject *peer_alt_names = Py_None;
     PyObject *v = NULL, *t;
-    X509_EXTENSION *ext = NULL;
+    const X509_EXTENSION *ext = NULL;
     GENERAL_NAMES *names = NULL;
     GENERAL_NAME *name;
     const X509V3_EXT_METHOD *method;
@@ -956,18 +966,30 @@ _get_peer_alt_names (X509 *certificate) {
             goto fail;
         }
 
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+        p = ASN1_STRING_get0_data(X509_EXTENSION_get_data(ext));
+#else
         p = X509_EXTENSION_get_data(ext)->data;
+#endif
         if (method->it)
             names = (GENERAL_NAMES*)
               (ASN1_item_d2i(NULL,
                              &p,
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+                             ASN1_STRING_length(X509_EXTENSION_get_data(ext)),
+#else
                              X509_EXTENSION_get_data(ext)->length,
+#endif
                              ASN1_ITEM_ptr(method->it)));
         else
             names = (GENERAL_NAMES*)
               (method->d2i(NULL,
                            &p,
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+                           ASN1_STRING_length(X509_EXTENSION_get_data(ext))));
+#else
                            X509_EXTENSION_get_data(ext)->length));
+#endif
 
         for(j = 0; j < sk_GENERAL_NAME_num(names); j++) {
             /* get a rendering of each name in the set of names */
@@ -1028,7 +1050,11 @@ _get_peer_alt_names (X509 *certificate) {
                     goto fail;
                 }
                 PyTuple_SET_ITEM(t, 0, v);
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+                v = PyString_FromStringAndSize((const char *)ASN1_STRING_get0_data(as),
+#else
                 v = PyString_FromStringAndSize((char *)ASN1_STRING_data(as),
+#endif
                                                ASN1_STRING_length(as));
                 if (v == NULL) {
                     Py_DECREF(t);
@@ -1173,8 +1199,13 @@ _get_aia_uri(X509 *certificate, int nid) {
             continue;
         }
         uri = ad->location->d.uniformResourceIdentifier;
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+        ostr = PyUnicode_FromStringAndSize((const char *)ASN1_STRING_get0_data(uri),
+                                           ASN1_STRING_length(uri));
+#else
         ostr = PyUnicode_FromStringAndSize((char *)uri->data,
                                            uri->length);
+#endif
         if (ostr == NULL) {
             goto fail;
         }
@@ -1240,8 +1271,13 @@ _get_crl_dp(X509 *certificate) {
                 continue;
             }
             uri = gn->d.uniformResourceIdentifier;
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+            ouri = PyUnicode_FromStringAndSize((const char *)ASN1_STRING_get0_data(uri),
+                                               ASN1_STRING_length(uri));
+#else
             ouri = PyUnicode_FromStringAndSize((char *)uri->data,
                                                uri->length);
+#endif
             if (ouri == NULL)
                 goto done;
 
