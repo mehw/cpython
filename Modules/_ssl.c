@@ -121,6 +121,16 @@ static void _PySSLFixErrno(void) {
 #include "_ssl_data.h"
 #endif
 
+#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
+#ifndef OPENSSL_NO_SSL3
+#  define OPENSSL_NO_SSL3
+#endif
+#  define OPENSSL_NO_SSL3_METHOD
+#  define OPENSSL_NO_TLS1_METHOD
+#  define OPENSSL_NO_TLS1_1_METHOD
+#  define OPENSSL_NO_TLS1_2_METHOD
+#endif
+
 /* OpenSSL API 1.1.0+ does not include version methods */
 #ifndef OPENSSL_NO_SSL3_METHOD
 extern const SSL_METHOD *SSLv3_method(void);
@@ -1071,7 +1081,7 @@ _asn1obj2py(_sslmodulestate *state, const ASN1_OBJECT *name, int no_name)
 
 static PyObject *
 _create_tuple_for_attribute(_sslmodulestate *state,
-                            ASN1_OBJECT *name, ASN1_STRING *value)
+                            const ASN1_OBJECT *name, const ASN1_STRING *value)
 {
     Py_ssize_t buflen;
     PyObject *pyattr;
@@ -1100,16 +1110,16 @@ _create_tuple_for_attribute(_sslmodulestate *state,
 }
 
 static PyObject *
-_create_tuple_for_X509_NAME (_sslmodulestate *state, X509_NAME *xname)
+_create_tuple_for_X509_NAME (_sslmodulestate *state, const X509_NAME *xname)
 {
     PyObject *dn = NULL;    /* tuple which represents the "distinguished name" */
     PyObject *rdn = NULL;   /* tuple to hold a "relative distinguished name" */
     PyObject *rdnt;
     PyObject *attr = NULL;   /* tuple to hold an attribute */
     int entry_count = X509_NAME_entry_count(xname);
-    X509_NAME_ENTRY *entry;
-    ASN1_OBJECT *name;
-    ASN1_STRING *value;
+    const X509_NAME_ENTRY *entry;
+    const ASN1_OBJECT *name;
+    const ASN1_STRING *value;
     int index_counter;
     int rdn_level = -1;
     int retcode;
@@ -1295,7 +1305,7 @@ _get_peer_alt_names (_sslmodulestate *state, X509 *certificate) {
                     goto fail;
                 }
                 PyTuple_SET_ITEM(t, 0, v);
-                v = PyUnicode_FromStringAndSize((char *)ASN1_STRING_get0_data(as),
+                v = PyUnicode_FromStringAndSize((const char *)ASN1_STRING_get0_data(as),
                                                 ASN1_STRING_length(as));
                 if (v == NULL) {
                     Py_DECREF(t);
@@ -1348,15 +1358,15 @@ _get_peer_alt_names (_sslmodulestate *state, X509 *certificate) {
                 }
                 PyTuple_SET_ITEM(t, 0, v);
 
-                if (name->d.ip->length == 4) {
-                    unsigned char *p = name->d.ip->data;
+                if (ASN1_STRING_length(name->d.ip) == 4) {
+                    const unsigned char *p = ASN1_STRING_get0_data(name->d.ip);
                     v = PyUnicode_FromFormat(
                         "%d.%d.%d.%d",
                         p[0], p[1], p[2], p[3]
                     );
-                } else if (name->d.ip->length == 16) {
+                } else if (ASN1_STRING_length(name->d.ip) == 16) {
                     /* PyUnicode_FromFormat() does not support %X */
-                    unsigned char *p = name->d.ip->data;
+                    const unsigned char *p = ASN1_STRING_get0_data(name->d.ip);
                     len = sprintf(
                         buf,
                         "%X:%X:%X:%X:%X:%X:%X:%X",
@@ -1489,8 +1499,8 @@ _get_aia_uri(X509 *certificate, int nid) {
             continue;
         }
         uri = ad->location->d.uniformResourceIdentifier;
-        ostr = PyUnicode_FromStringAndSize((char *)uri->data,
-                                           uri->length);
+        ostr = PyUnicode_FromStringAndSize((const char *)ASN1_STRING_get0_data(uri),
+                                           ASN1_STRING_length(uri));
         if (ostr == NULL) {
             goto fail;
         }
@@ -1556,8 +1566,8 @@ _get_crl_dp(X509 *certificate) {
                 continue;
             }
             uri = gn->d.uniformResourceIdentifier;
-            ouri = PyUnicode_FromStringAndSize((char *)uri->data,
-                                               uri->length);
+            ouri = PyUnicode_FromStringAndSize((const char *)ASN1_STRING_get0_data(uri),
+                                               ASN1_STRING_length(uri));
             if (ouri == NULL)
                 goto done;
 
@@ -6068,12 +6078,18 @@ sslmodule_init_constants(PyObject *m)
                             PY_SSL_VERSION_TLS_CLIENT);
     PyModule_AddIntConstant(m, "PROTOCOL_TLS_SERVER",
                             PY_SSL_VERSION_TLS_SERVER);
+#if !defined(OPENSSL_NO_TLS1) && !defined(OPENSSL_NO_TLS1_METHOD)
     PyModule_AddIntConstant(m, "PROTOCOL_TLSv1",
                             PY_SSL_VERSION_TLS1);
+#endif
+#if !defined(OPENSSL_NO_TLS1) && !defined(OPENSSL_NO_TLS1_METHOD)
     PyModule_AddIntConstant(m, "PROTOCOL_TLSv1_1",
                             PY_SSL_VERSION_TLS1_1);
+#endif
+#if !defined(OPENSSL_NO_TLS1) && !defined(OPENSSL_NO_TLS1_METHOD)
     PyModule_AddIntConstant(m, "PROTOCOL_TLSv1_2",
                             PY_SSL_VERSION_TLS1_2);
+#endif
 
 #define ADD_OPTION(NAME, VALUE) if (sslmodule_add_option(m, NAME, (VALUE)) < 0) return -1
 
